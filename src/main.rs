@@ -1,13 +1,15 @@
 use bevy::prelude::*;
 use bevy_rapier2d::prelude::*;
+use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 // world
 const GRAVITY: Vec2 = Vec2::new(0.0, -200.);
+const SKY_COLOR: Color = Color::rgb(0.561, 0.933, 1.0);
 
 // skeleton
 const SKELETON_STARTING_POS: Vec3 = Vec3::new(-50.0, 0., 0.);
 const SKELETON_SIZE: Vec2 = Vec2::new(50.0, 100.0);
-const SKELETON_WALK_SPEED: f32 = 200.0;
+const SKELETON_WALK_SPEED: f32 = 5.0;
 
 // floor
 const FLOOR_POS: Vec3 = Vec3::new(0., -350.0, 0.);
@@ -16,16 +18,18 @@ const FLOOR_SIZE: Vec2 = Vec2::new(1000.0, 25.0);
 // slope
 const SLOPE_POS: Vec3 = Vec3::new(4880.0, -2737.0, 0.);
 const SLOPE_SIZE: Vec2 = Vec2::new(10000.0, 25.0);
+const SLOPE_COLOR: Color = Color::rgb(0.94, 0.94, 0.94);
 
 fn main() {
     App::new()
-        .insert_resource(ClearColor(Color::rgb(0.95, 0.95, 0.95)))
+        .insert_resource(ClearColor(SKY_COLOR))
         .add_plugins(DefaultPlugins)
         .add_plugins(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(100.0))
         .add_plugins(RapierDebugRenderPlugin::default())
+        .add_plugins(WorldInspectorPlugin::new())
         .add_systems(Startup, setup)
         .add_systems(FixedUpdate, (
-            player_direction, 
+            move_player, 
             player_jump_ski, 
             jump_reset, 
             camera_follow_player,
@@ -39,10 +43,13 @@ fn main() {
         .run();
 }
 
+// COMPONENTS
+
 #[derive(Component)]
 struct Player {
     jump_power: f32,
     is_jumping: bool,
+    is_skiing: bool,
     direction: f32,
 }
 
@@ -51,6 +58,7 @@ impl Default for Player {
         Player {
             jump_power: 1.0,
             is_jumping: false,
+            is_skiing: false,
             direction: 1.0,
         }
     }
@@ -78,7 +86,7 @@ fn setup(mut commands: Commands) {
     // floor
     commands.spawn((SpriteBundle {
         sprite: Sprite {
-            color: Color::rgb(0.25, 0.25, 0.75),
+            color: SLOPE_COLOR,
             custom_size: Some(FLOOR_SIZE),
             ..default()
         },
@@ -92,7 +100,7 @@ fn setup(mut commands: Commands) {
     // slope
     commands.spawn((SpriteBundle {
         sprite: Sprite {
-            color: Color::rgb(0.25, 0.25, 0.75),
+            color: SLOPE_COLOR,
             custom_size: Some(SLOPE_SIZE),
             ..default()
         },
@@ -111,7 +119,7 @@ fn setup(mut commands: Commands) {
     ));
 
     // skeleton
-    let _player = commands.spawn(RigidBody::Dynamic)
+    let _player = commands.spawn(Player::default())
     .insert((SpriteBundle {
         sprite: Sprite {
             color: Color::rgb(0.25, 0.25, 0.75),
@@ -121,8 +129,8 @@ fn setup(mut commands: Commands) {
         transform: Transform::from_translation(SKELETON_STARTING_POS),
         ..default()
         },
+        RigidBody::Dynamic,
         Skeleton,
-        Player::default(),
         Collider::cuboid(SKELETON_SIZE.x*0.5, SKELETON_SIZE.y*0.5),
         Velocity::zero(),
         ActiveEvents::COLLISION_EVENTS
@@ -146,34 +154,49 @@ fn setup(mut commands: Commands) {
     
 }
 
-fn player_direction(input: Res<Input<KeyCode>>,
+fn move_player(input: Res<Input<KeyCode>>,
     mut player: Query<&mut Player>,
+    mut transform: Query<&mut Transform, With<Player>>,
 ) {
     let mut player = player.single_mut();
+    let mut transform = transform.single_mut();
 
     if input.pressed(KeyCode::A) {
-        player.direction = -1.0;
+        if !player.is_skiing {
+            transform.translation.x -= SKELETON_WALK_SPEED;
+
+        }
+        else if player.is_skiing && !player.is_jumping {
+            player.direction = -1.0;
+        }
+        
     }
     if input.pressed(KeyCode::D) {
-        player.direction = 1.0;
+        if !player.is_skiing {
+            transform.translation.x += SKELETON_WALK_SPEED;
+        }
+        else if player.is_skiing && !player.is_jumping {
+            player.direction = 1.0;
+        }
+        
     }
     
 }
 
-
 fn player_jump_ski(
     input: Res<Input<KeyCode>>,
-    mut player: Query<&mut Player>,
+    mut player: Query<&Player>,
     mut velocity: Query<&mut Velocity, With<Player>>,
 ) {
-    let mut player = player.single_mut();
+    let player = player.single_mut();
     let mut velocity = velocity.single_mut();
 
-    if  !player.is_jumping {
+    if !player.is_jumping {
         if input.pressed(KeyCode::Space) {
-            velocity.linvel = Vec2::new(velocity.linvel.x, 200.0 * player.jump_power);
-        }    
-        if input.pressed(KeyCode::S) {
+            let new_x = if player.is_skiing { velocity.linvel.x } else { 0.0 };
+            velocity.linvel = Vec2::new(new_x, 200.0 * player.jump_power);
+        }
+        if input.pressed(KeyCode::S) && player.is_skiing {
             velocity.linvel = Vec2::new(velocity.linvel.x + (20.0 * player.direction), velocity.linvel.y);
         }
     }
@@ -234,7 +257,6 @@ fn camera_follow_player(
 
 fn player_camera_control(
     input: Res<Input<KeyCode>>,
-    time: Res<Time>,
     mut query: Query<&mut OrthographicProjection, With<Camera>>,
 ) {
     for mut projection in query.iter_mut() {

@@ -35,6 +35,7 @@ fn main() {
             camera_follow_player,
             player_camera_control,
             rotate_player,
+            toggle_rotation_lock,
         ))
         .insert_resource(RapierConfiguration {
             gravity: GRAVITY,
@@ -118,7 +119,7 @@ fn setup(mut commands: Commands) {
 
     ));
 
-    // skeleton
+    // player
     let _player = commands.spawn(Player::default())
     .insert((SpriteBundle {
         sprite: Sprite {
@@ -133,24 +134,23 @@ fn setup(mut commands: Commands) {
         Skeleton,
         Collider::cuboid(SKELETON_SIZE.x*0.5, SKELETON_SIZE.y*0.5),
         Velocity::zero(),
-        ActiveEvents::COLLISION_EVENTS
+        ActiveEvents::COLLISION_EVENTS,
+        LockedAxes::empty(),
     )).id();
 
     // skis
-    // let skis = commands.spawn(RigidBody::Dynamic)
-    // .insert((SpriteBundle {
-    //     sprite: Sprite {
-    //         color: Color::rgb(0.25, 0.25, 0.75),
-    //         ..default()
-    //     },
-    //     transform: Transform::from_translation(SKELETON_STARTING_POS),
-    //     ..default()
-    //     },
-    //     Skis,
-    //     Collider::cuboid(SKELETON_SIZE.x*2., SKELETON_SIZE.y*0.25),
-    // )).id();
-
-    // commands.entity(player).push_children(&[skis]);
+    let _skis = commands.spawn(RigidBody::Dynamic)
+    .insert((SpriteBundle {
+        sprite: Sprite {
+            color: Color::rgb(0.25, 0.25, 0.75),
+            ..default()
+        },
+        transform: Transform::from_translation(SKELETON_STARTING_POS),
+        ..default()
+        },
+        Skis,
+        Collider::cuboid(SKELETON_SIZE.x*2., SKELETON_SIZE.y*0.25),
+    )).id();
     
 }
 
@@ -225,22 +225,26 @@ fn jump_reset(
 fn rotate_player(
     input: Res<Input<KeyCode>>,
     mut velocity: Query<&mut Velocity, With<Player>>,
+    player: Query<&Player>,
 ) {
     let mut player_velocity = velocity.single_mut();
+    let player = player.single();
 
-    if player_velocity.angvel != 0.0 {
-        player_velocity.angvel *= 0.98;
-    }
-
-    if input.pressed(KeyCode::E) {
-        if player_velocity.angvel < 5.0 {
-            player_velocity.angvel += 0.25;
-        }  
-    }
-    if input.pressed(KeyCode::Q) {
-        if player_velocity.angvel > -5.0 {
-            player_velocity.angvel -= 0.25;
-        }  
+    if player.is_skiing {
+        if player_velocity.angvel != 0.0 {
+            player_velocity.angvel *= 0.98;
+        }
+    
+        if input.pressed(KeyCode::E) {
+            if player_velocity.angvel < 5.0 {
+                player_velocity.angvel += 0.25;
+            }  
+        }
+        if input.pressed(KeyCode::Q) {
+            if player_velocity.angvel > -5.0 {
+                player_velocity.angvel -= 0.25;
+            }  
+        }
     }
 }
 
@@ -270,5 +274,23 @@ fn player_camera_control(
         }
 
         projection.scale = log_scale.exp();
+    }
+}
+
+fn toggle_rotation_lock(
+    mut query: Query<&mut LockedAxes, With<Player>>,
+    mut transform: Query<&mut Transform, With<Player>>,
+    player: Query<&Player>,
+) {
+    let mut locked_axes = query.single_mut();
+    let mut transform = transform.single_mut();
+    let player = player.single();
+
+    if player.is_skiing {
+        *locked_axes = LockedAxes::empty();
+    }
+    else {
+        *locked_axes = LockedAxes::ROTATION_LOCKED;
+        transform.rotation = Quat::from_rotation_z(0.0);
     }
 }
